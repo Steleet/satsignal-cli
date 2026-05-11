@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "satsignal-cli"
+version = "0.1.0"
+description = "Customer-facing CLI for Satsignal — anchor and verify files against the BSV-anchored notary."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Satsignal" }]
+license = { text = "MIT" }
+keywords = ["satsignal", "notary", "bsv", "timestamp", "evidence"]
+dependencies = [
+    "requests>=2.28",
+]
+
+[project.optional-dependencies]
+toml-py39 = ["tomli>=2.0"]
+
+[project.scripts]
+satsignal = "satsignal.cli:main"
+
+[project.urls]
+Homepage = "https://satsignal.cloud"
+Documentation = "https://proof.satsignal.cloud/spec-bundle"
+
+[tool.setuptools.packages.find]
+where = ["src"]
