@@ -98,6 +98,10 @@ def verify_file(
     # §7.4 — chain confirmation
     try:
         confirmations, doc_hash_on_chain = _fetch_chain(bundle.txid)
+    except _ChainError as e:
+        return VerifyResult(VerifyClass.CHAIN, bundle=bundle,
+                            sha256_hex=sha256_hex, txid=bundle.txid,
+                            message=str(e))
     except _NetworkError as e:
         return VerifyResult(VerifyClass.NETWORK, bundle=bundle,
                             sha256_hex=sha256_hex, txid=bundle.txid,
@@ -230,7 +234,16 @@ def _verify_doc_hash(bundle: Bundle) -> Optional[str]:
 # ────────────────────────── §7.4: chain ──────────────────────────
 
 class _NetworkError(Exception):
-    pass
+    """Could not reach an explorer. Retry-friendly per bundle-v1.md §8
+    NETWORK class (exit 3)."""
+
+
+class _ChainError(Exception):
+    """Explorer returned the tx successfully but the on-chain commitment
+    doesn't carry an MBNT OP_RETURN. Per bundle-v1.md §8 this is CHAIN
+    (exit 2) — the bundle parses but the anchor doesn't match. Not
+    retry-friendly: the txid was fetched fine, the anchor is just
+    absent / wrong."""
 
 
 def _get_with_retry(url: str, timeout: int):
@@ -259,7 +272,7 @@ def _fetch_chain(txid: str) -> tuple[int, str]:
         confirmations = int(data.get("confirmations", 0))
         doc_hash = _parse_mbnt_from_woc(data)
         if doc_hash is None:
-            raise _NetworkError(
+            raise _ChainError(
                 f"no MBNT OP_RETURN found in tx {txid}"
             )
         return confirmations, doc_hash
@@ -273,7 +286,7 @@ def _fetch_chain(txid: str) -> tuple[int, str]:
         confirmations = int(data.get("confirmations", 0))
         doc_hash = _parse_mbnt_from_bitails(data)
         if doc_hash is None:
-            raise _NetworkError(
+            raise _ChainError(
                 f"no MBNT OP_RETURN found in tx {txid}"
             )
         return confirmations, doc_hash
@@ -307,16 +320,26 @@ def _parse_mbnt_from_bitails(tx_data: dict) -> Optional[str]:
 
 
 def _extract_mbnt_doc_hash(script_hex: str) -> Optional[str]:
-    """Parse OP_FALSE OP_RETURN <push N> <payload>. Returns the 40-hex
+    """Parse [OP_FALSE] OP_RETURN <push N> <payload>. Returns the 40-hex
     doc_hash (payload[8:28]) if the payload's magic is MBNT, else None.
-    bundle-v1.md §6.1 + SPEC_mbnt.md §1–§2 are the references."""
+    bundle-v1.md §6.1 + SPEC_mbnt.md §1–§2 are the references.
+
+    The on-chain script is `OP_FALSE OP_RETURN <push> <payload>` per
+    bundle-v1.md §6.1; that's what the server emits and what Bitails
+    returns in `outputs[].script`. WhatsOnChain's `scriptPubKey.hex`
+    strips the leading OP_FALSE in its JSON view though, so accept
+    either prefix — both are the same on-chain bytes.
+    """
     try:
         b = bytes.fromhex(script_hex)
     except ValueError:
         return None
-    if len(b) < 4 or b[0] != 0x00 or b[1] != 0x6a:
+    idx = 0
+    if idx < len(b) and b[idx] == 0x00:
+        idx += 1  # optional OP_FALSE (preserved by Bitails, stripped by WoC)
+    if idx >= len(b) or b[idx] != 0x6a:
         return None
-    idx = 2
+    idx += 1
     if idx >= len(b):
         return None
     op = b[idx]
