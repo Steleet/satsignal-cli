@@ -133,12 +133,14 @@ def verify_file(
 
 def _verify_crypto(bundle: Bundle, file_path: Path) -> Optional[str]:
     proofs = bundle.canonical.get("subject", {}).get("proofs")
+    if bundle.mode != "sealed":
+        # v1 bundles (schema_version 1) carry subject.document_sha256
+        # instead of subject.proofs — let _verify_crypto_standard route
+        # through its v1 fallback rather than bailing here.
+        return _verify_crypto_standard(bundle, file_path, proofs or {})
     if proofs is None:
-        return "canonical.json missing subject.proofs"
-
-    if bundle.mode == "sealed":
-        return _verify_crypto_sealed(bundle, file_path, proofs)
-    return _verify_crypto_standard(bundle, file_path, proofs)
+        return "sealed bundle missing subject.proofs"
+    return _verify_crypto_sealed(bundle, file_path, proofs)
 
 
 def _verify_crypto_standard(bundle: Bundle, file_path: Path,
