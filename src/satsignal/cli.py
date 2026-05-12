@@ -490,18 +490,23 @@ def cmd_headers_sync(args: argparse.Namespace) -> int:
         if batches % 20 == 0:
             _err(f"  batch {batches:>3}: tip={tip:>7,}  ({elapsed:.1f}s)")
 
+    def on_reconnect(attempt: int, err: str) -> None:
+        _err(f"  reconnect attempt {attempt}: {err}")
+
     def on_peer_switch(host: str, err: str) -> None:
         _err(f"satsignal: {host} failed ({err}); trying next peer...")
 
     try:
         if args.peer:
             new_tip = sync_against_peer(
-                store, args.peer, args.port, on_progress=on_progress,
+                store, args.peer, args.port,
+                on_progress=on_progress, on_reconnect=on_reconnect,
             )
         else:
             new_tip = sync_with_fallback(
                 store, peers=DEFAULT_PEERS,
                 on_progress=on_progress,
+                on_reconnect=on_reconnect,
                 on_peer_switch=on_peer_switch,
             )
     except HeadersError as e:

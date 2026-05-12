@@ -354,53 +354,87 @@ class HeaderStore:
 
 def sync_against_peer(store: HeaderStore, host: str, port: int = 8333, *,
                       on_progress: Optional[Callable[[int, int, float], None]] = None,
-                      timeout: float = 30.0) -> int:
+                      on_reconnect: Optional[Callable[[int, str], None]] = None,
+                      timeout: float = 30.0,
+                      max_reconnects: int = 3) -> int:
     """Sync the store up to the connected peer's tip. Returns the new
     tip height. on_progress is called with (batches_done, current_tip,
-    elapsed_seconds) after each batch — caller decides whether to emit.
+    elapsed_seconds) after each batch.
+
+    Reconnects up to max_reconnects times on P2PError mid-sync. Progress
+    is resumable across reconnects because append_validated commits
+    each header immediately and the next handshake re-locates from
+    store.tip_height. on_reconnect(attempt, err_msg) fires per attempt.
 
     Genesis is appended automatically if the store is empty. Raises
-    P2PError on peer-level failures and ValidationError on chain
-    integrity failures (mid-sync)."""
+    P2PError after exhausting reconnects, and ValidationError on chain
+    integrity failures (which are NOT retried — bad bits is a hard fail)."""
     store.ensure_genesis()
 
-    sock, _ = handshake(host, port, timeout=timeout)
-    try:
-        t0 = time.monotonic()
-        batches = 0
-        while True:
-            batch = request_headers(sock, locator=store.locator(),
-                                    timeout=timeout)
-            if not batch:
-                break
-            for h in batch:
-                store.append_validated(h)
-            batches += 1
-            if on_progress is not None:
-                on_progress(batches, store.tip_height,
-                            time.monotonic() - t0)
-            if len(batch) < 2000:
-                # Peer signals "no more headers I know of" by returning
-                # fewer than the 2000-cap in the response.
-                break
-        return store.tip_height
-    finally:
-        sock.close()
+    t0 = time.monotonic()
+    batches = 0
+    reconnect_attempt = 0
+    while True:
+        try:
+            sock, _ = handshake(host, port, timeout=timeout)
+        except (P2PError, OSError) as e:
+            reconnect_attempt += 1
+            if reconnect_attempt > max_reconnects:
+                raise P2PError(f"handshake failed {max_reconnects + 1}x: {e}") from None
+            if on_reconnect is not None:
+                on_reconnect(reconnect_attempt, str(e))
+            time.sleep(1.0)
+            continue
+        try:
+            while True:
+                batch = request_headers(sock, locator=store.locator(),
+                                        timeout=timeout)
+                if not batch:
+                    return store.tip_height
+                for h in batch:
+                    store.append_validated(h)
+                batches += 1
+                if on_progress is not None:
+                    on_progress(batches, store.tip_height,
+                                time.monotonic() - t0)
+                if len(batch) < 2000:
+                    return store.tip_height
+        except P2PError as e:
+            reconnect_attempt += 1
+            if reconnect_attempt > max_reconnects:
+                raise P2PError(
+                    f"sync failed mid-stream after {max_reconnects} "
+                    f"reconnects at tip={store.tip_height}: {e}"
+                ) from None
+            if on_reconnect is not None:
+                on_reconnect(reconnect_attempt, str(e))
+            time.sleep(1.0)
+            continue
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
 
 
 def sync_with_fallback(store: HeaderStore,
                        peers: tuple = DEFAULT_PEERS,
                        on_progress: Optional[Callable[[int, int, float], None]] = None,
+                       on_reconnect: Optional[Callable[[int, str], None]] = None,
                        on_peer_switch: Optional[Callable[[str, str], None]] = None,
                        timeout: float = 30.0) -> int:
     """Try each peer in turn until one syncs us to its tip. Returns the
-    final tip height. Raises HeadersError if all peers fail."""
+    final tip height. Within a single peer, sync_against_peer handles
+    its own reconnect retries — on_reconnect fires there, on_peer_switch
+    fires when we abandon a peer entirely. Raises HeadersError if all
+    peers fail."""
     last_err: Optional[Exception] = None
     for host, port in peers:
         try:
             return sync_against_peer(
                 store, host, port,
-                on_progress=on_progress, timeout=timeout,
+                on_progress=on_progress, on_reconnect=on_reconnect,
+                timeout=timeout,
             )
         except (P2PError, OSError) as e:
             last_err = e
