@@ -34,6 +34,10 @@ class VerifyClass(Enum):
     CHAIN = "chain"
     VERSION = "version"
     NETWORK = "network"
+    SPV = "spv"           # standard verify passed; SPV (merkle proof
+                          # against local headers) was requested but
+                          # failed — block missing from local chain,
+                          # bad proof, or proof fetch error
 
 
 # Exit codes per bundle-v1.md §8.
@@ -45,6 +49,7 @@ EXIT_CODES = {
     VerifyClass.CHAIN: 2,
     VerifyClass.NETWORK: 3,
     VerifyClass.VERSION: 6,
+    VerifyClass.SPV: 8,
 }
 
 

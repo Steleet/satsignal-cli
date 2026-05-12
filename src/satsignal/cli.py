@@ -85,6 +85,10 @@ def _build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--min-confirmations", type=int, default=0,
                     help="require at least N confirmations (default 0 = "
                          "PENDING is exit 0)")
+    pv.add_argument("--spv", action="store_true",
+                    help="additionally verify the tx via TSC merkle proof "
+                         "against the local headers store (run `satsignal "
+                         "headers sync` first). Exits 8 on SPV failure.")
     pv.add_argument("--ascii", action="store_true",
                     help="force ASCII output (auto-on for non-UTF-8 stdouts)")
     pv.add_argument("--json", action="store_true")
@@ -111,6 +115,17 @@ def _build_parser() -> argparse.ArgumentParser:
     pm = sub.add_parser("matters", help="list workspace matters")
     pm.add_argument("--json", action="store_true")
     pm.set_defaults(func=cmd_matters)
+
+    ph = sub.add_parser("headers", help="manage the local SPV headers store")
+    ph_sub = ph.add_subparsers(dest="headers_cmd")
+    phs = ph_sub.add_parser("sync", help="sync the local headers store to a BSV peer's tip")
+    phs.add_argument("--peer", default=None,
+                     help="peer host (default tries the seed list)")
+    phs.add_argument("--port", type=int, default=8333)
+    phs.set_defaults(func=cmd_headers_sync)
+    phst = ph_sub.add_parser("status", help="print local headers store state")
+    phst.add_argument("--json", action="store_true")
+    phst.set_defaults(func=cmd_headers_status)
 
     return p
 
@@ -239,11 +254,52 @@ def cmd_verify(args: argparse.Namespace) -> int:
              "fabricated bundles pass crypto-only checks; only the chain "
              "check distinguishes a real anchor.")
 
+    if args.spv and args.offline:
+        _err("satsignal: --spv requires fetching a merkle proof; cannot "
+             "combine with --offline")
+        return 1
+
     result = verify_file(
         file_path, bundle_path,
         offline=args.offline,
         min_confirmations=args.min_confirmations,
     )
+
+    spv_height: Optional[int] = None
+    spv_block_hash_be: Optional[str] = None
+    if args.spv and result.cls == VerifyClass.VERIFIED:
+        from .headers import HeaderStore, HeadersError
+        from .spv import verify_txid_in_chain
+        try:
+            store = HeaderStore()
+        except HeadersError as e:
+            result = type(result)(
+                cls=VerifyClass.SPV, bundle=result.bundle,
+                sha256_hex=result.sha256_hex, txid=result.txid,
+                confirmations=result.confirmations,
+                message=f"local headers store unreadable: {e}",
+            )
+        else:
+            if store.tip_height < 0:
+                result = type(result)(
+                    cls=VerifyClass.SPV, bundle=result.bundle,
+                    sha256_hex=result.sha256_hex, txid=result.txid,
+                    confirmations=result.confirmations,
+                    message=("local headers store empty — run `satsignal "
+                             "headers sync` first"),
+                )
+            else:
+                spv = verify_txid_in_chain(result.txid, store)
+                if not spv.ok:
+                    result = type(result)(
+                        cls=VerifyClass.SPV, bundle=result.bundle,
+                        sha256_hex=result.sha256_hex, txid=result.txid,
+                        confirmations=result.confirmations,
+                        message=f"SPV: {spv.error}",
+                    )
+                else:
+                    spv_height = spv.height
+                    spv_block_hash_be = spv.block_hash_be
 
     if args.json:
         print(json.dumps({
@@ -254,6 +310,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
             "txid": result.txid,
             "confirmations": result.confirmations,
             "message": result.message,
+            "spv": {
+                "block_height": spv_height,
+                "block_hash": spv_block_hash_be,
+            } if args.spv and result.cls == VerifyClass.VERIFIED else None,
         }))
     else:
         _render_verify_human(result, file_path, bundle_path,
@@ -273,6 +333,7 @@ def _render_verify_human(result, file_path: Path, bundle_path: Path,
             VerifyClass.CHAIN:    "✗ CHAIN failure",
             VerifyClass.VERSION:  "✗ VERSION unsupported",
             VerifyClass.NETWORK:  "? NETWORK error",
+            VerifyClass.SPV:      "✗ SPV failure",
         }[result.cls]
     else:
         label = {
@@ -283,6 +344,7 @@ def _render_verify_human(result, file_path: Path, bundle_path: Path,
             VerifyClass.CHAIN:    "X  CHAIN failure",
             VerifyClass.VERSION:  "X  VERSION unsupported",
             VerifyClass.NETWORK:  "?  NETWORK error",
+            VerifyClass.SPV:      "X  SPV failure",
         }[result.cls]
     print(f"{label}: {file_path}")
     print(f"  bundle:    {bundle_path}")
@@ -408,6 +470,84 @@ def cmd_matters(args: argparse.Namespace) -> int:
         slug = m.get("slug", "?")
         name = m.get("name") or ""
         print(f"{slug:<24} {name}")
+    return 0
+
+
+# ────────────────────────── headers ──────────────────────────
+
+def cmd_headers_sync(args: argparse.Namespace) -> int:
+    from .headers import (
+        HeaderStore, HeadersError, DEFAULT_PEERS,
+        sync_against_peer, sync_with_fallback,
+    )
+
+    store = HeaderStore()
+    initial_tip = store.tip_height
+    _err(f"satsignal: local tip = {initial_tip:,} (genesis appended "
+         f"automatically if empty)")
+
+    def on_progress(batches: int, tip: int, elapsed: float) -> None:
+        if batches % 20 == 0:
+            _err(f"  batch {batches:>3}: tip={tip:>7,}  ({elapsed:.1f}s)")
+
+    def on_peer_switch(host: str, err: str) -> None:
+        _err(f"satsignal: {host} failed ({err}); trying next peer...")
+
+    try:
+        if args.peer:
+            new_tip = sync_against_peer(
+                store, args.peer, args.port, on_progress=on_progress,
+            )
+        else:
+            new_tip = sync_with_fallback(
+                store, peers=DEFAULT_PEERS,
+                on_progress=on_progress,
+                on_peer_switch=on_peer_switch,
+            )
+    except HeadersError as e:
+        _err(f"satsignal: headers sync failed: {e}")
+        return 3
+
+    added = new_tip - initial_tip if initial_tip >= 0 else new_tip + 1
+    stats = store.stats()
+    print(f"synced: tip={new_tip:,}  (+{added:,} headers)")
+    print(f"  tip hash: {stats.tip_hash_be}")
+    print(f"  on disk:  {stats.file_size + stats.chainwork_size:,} bytes "
+          f"({(stats.file_size + stats.chainwork_size) / 1024 / 1024:.1f} MB)")
+    return 0
+
+
+def cmd_headers_status(args: argparse.Namespace) -> int:
+    from .headers import HeaderStore, CW144_FORK_HEIGHT
+
+    store = HeaderStore()
+    stats = store.stats()
+    if stats.tip_height < 0:
+        if args.json:
+            print(json.dumps({"tip_height": -1, "synced": False}))
+        else:
+            print("(headers store empty — run `satsignal headers sync`)")
+        return 0
+
+    cw_at_tip = store.chainwork(stats.tip_height)
+    if args.json:
+        print(json.dumps({
+            "tip_height": stats.tip_height,
+            "tip_hash_be": stats.tip_hash_be,
+            "headers_bytes": stats.file_size,
+            "chainwork_bytes": stats.chainwork_size,
+            "cw144_engaged": stats.tip_height >= CW144_FORK_HEIGHT,
+            "chainwork_at_tip_hex": hex(cw_at_tip),
+        }))
+    else:
+        print(f"tip_height:    {stats.tip_height:,}")
+        print(f"tip_hash (BE): {stats.tip_hash_be}")
+        print(f"headers.bin:   {stats.file_size:,} bytes "
+              f"({stats.file_size / 1024 / 1024:.1f} MB)")
+        print(f"chainwork.bin: {stats.chainwork_size:,} bytes "
+              f"({stats.chainwork_size / 1024 / 1024:.1f} MB)")
+        print(f"cw-144 fork:   {CW144_FORK_HEIGHT:,} "
+              f"({'engaged' if stats.tip_height >= CW144_FORK_HEIGHT else 'pre-fork'})")
     return 0
 
 

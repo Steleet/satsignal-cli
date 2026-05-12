@@ -32,14 +32,24 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from .p2p import (
     BlockHeader,
     GENESIS_HASH_LE,
+    P2PError,
     _parse_block_header,
+    handshake,
+    request_headers,
+)
+
+
+DEFAULT_PEERS = (
+    ("seed.bitcoinsv.io", 8333),
+    ("api.gorillapool.io", 8333),
 )
 
 
@@ -300,6 +310,13 @@ class HeaderStore:
 
     # ─── internal ───
 
+    def ensure_genesis(self) -> None:
+        """Append the hardcoded genesis if the store is empty. No-op
+        if the store already has at least block 0."""
+        if self.tip_height >= 0:
+            return
+        self.append_validated(_parse_block_header(GENESIS_RAW_80))
+
     def _load_index(self) -> None:
         if not self.headers_path.exists():
             return
@@ -331,3 +348,65 @@ class HeaderStore:
                 block_hash = hashlib.sha256(hashlib.sha256(raw).digest()).digest()
                 self._hash_to_height[block_hash] = height
                 height += 1
+
+
+# ─────────────────────────── peer sync ───────────────────────────
+
+def sync_against_peer(store: HeaderStore, host: str, port: int = 8333, *,
+                      on_progress: Optional[Callable[[int, int, float], None]] = None,
+                      timeout: float = 30.0) -> int:
+    """Sync the store up to the connected peer's tip. Returns the new
+    tip height. on_progress is called with (batches_done, current_tip,
+    elapsed_seconds) after each batch — caller decides whether to emit.
+
+    Genesis is appended automatically if the store is empty. Raises
+    P2PError on peer-level failures and ValidationError on chain
+    integrity failures (mid-sync)."""
+    store.ensure_genesis()
+
+    sock, _ = handshake(host, port, timeout=timeout)
+    try:
+        t0 = time.monotonic()
+        batches = 0
+        while True:
+            batch = request_headers(sock, locator=store.locator(),
+                                    timeout=timeout)
+            if not batch:
+                break
+            for h in batch:
+                store.append_validated(h)
+            batches += 1
+            if on_progress is not None:
+                on_progress(batches, store.tip_height,
+                            time.monotonic() - t0)
+            if len(batch) < 2000:
+                # Peer signals "no more headers I know of" by returning
+                # fewer than the 2000-cap in the response.
+                break
+        return store.tip_height
+    finally:
+        sock.close()
+
+
+def sync_with_fallback(store: HeaderStore,
+                       peers: tuple = DEFAULT_PEERS,
+                       on_progress: Optional[Callable[[int, int, float], None]] = None,
+                       on_peer_switch: Optional[Callable[[str, str], None]] = None,
+                       timeout: float = 30.0) -> int:
+    """Try each peer in turn until one syncs us to its tip. Returns the
+    final tip height. Raises HeadersError if all peers fail."""
+    last_err: Optional[Exception] = None
+    for host, port in peers:
+        try:
+            return sync_against_peer(
+                store, host, port,
+                on_progress=on_progress, timeout=timeout,
+            )
+        except (P2PError, OSError) as e:
+            last_err = e
+            if on_peer_switch is not None:
+                on_peer_switch(host, str(e))
+            continue
+    raise HeadersError(
+        f"all peers failed; last error: {last_err}"
+    )
