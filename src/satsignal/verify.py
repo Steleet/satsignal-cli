@@ -275,10 +275,7 @@ def _parse_mbnt_from_woc(tx_data: dict) -> Optional[str]:
     the first OP_FALSE OP_RETURN whose pushed bytes begin with the
     MBNT magic, slice doc_hash = payload[8:28]."""
     for vout in tx_data.get("vout", []):
-        script_hex = (
-            vout.get("scriptPubKey", {}).get("hex")
-            or vout.get("scriptPubKey", {}).get("asm")
-        )
+        script_hex = vout.get("scriptPubKey", {}).get("hex")
         if not script_hex:
             continue
         doc_hash = _extract_mbnt_doc_hash(script_hex)
