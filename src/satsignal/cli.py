@@ -14,12 +14,21 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import requests
+
 from . import __version__
 from . import api, bundle, log
 from .api import APIError
 from .bundle import BundleError, default_sidecar_path, find_sidecar, load_bundle
 from .config import Config, write_credentials
 from .verify import EXIT_CODES, VerifyClass, verify_file
+
+
+def _use_unicode(args: argparse.Namespace) -> bool:
+    if getattr(args, "ascii", False):
+        return False
+    enc = (sys.stdout.encoding or "").lower()
+    return "utf" in enc
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -58,6 +67,11 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="override sidecar location")
     pa.add_argument("--broadcast", action="store_true",
                     help="actually anchor (default: dry-run)")
+    pa.add_argument("--strict", action="store_true",
+                    help="exit 7 if no local sidecar was written "
+                         "(server returned no bundle_url)")
+    pa.add_argument("--ascii", action="store_true",
+                    help="force ASCII output (auto-on for non-UTF-8 stdouts)")
     pa.add_argument("--json", action="store_true",
                     help="machine-readable output")
     pa.set_defaults(func=cmd_anchor)
@@ -71,6 +85,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--min-confirmations", type=int, default=0,
                     help="require at least N confirmations (default 0 = "
                          "PENDING is exit 0)")
+    pv.add_argument("--ascii", action="store_true",
+                    help="force ASCII output (auto-on for non-UTF-8 stdouts)")
     pv.add_argument("--json", action="store_true")
     pv.set_defaults(func=cmd_verify)
 
@@ -163,7 +179,8 @@ def cmd_anchor(args: argparse.Namespace) -> int:
             "sidecar": str(sidecar) if result.bundle_url else None,
         }))
     else:
-        print(f"✓ anchored {file_path}")
+        ok = "✓" if _use_unicode(args) else "OK"
+        print(f"{ok} anchored {file_path}")
         print(f"  txid:     {result.txid}")
         print(f"  bundle:   {result.bundle_id}")
         print(f"  matter:   {result.matter_slug}")
@@ -171,6 +188,8 @@ def cmd_anchor(args: argparse.Namespace) -> int:
             print(f"  receipt:  {sidecar} ({sidecar.stat().st_size:,} bytes)")
         print(f"  url:      {result.receipt_url}")
         print(f"  verify:   satsignal verify {file_path}")
+    if args.strict and not result.bundle_url:
+        return 7
     return 0
 
 
@@ -237,21 +256,34 @@ def cmd_verify(args: argparse.Namespace) -> int:
             "message": result.message,
         }))
     else:
-        _render_verify_human(result, file_path, bundle_path)
+        _render_verify_human(result, file_path, bundle_path,
+                             unicode_ok=_use_unicode(args))
 
     return EXIT_CODES[result.cls]
 
 
-def _render_verify_human(result, file_path: Path, bundle_path: Path) -> None:
-    label = {
-        VerifyClass.VERIFIED: "✓ verified",
-        VerifyClass.PENDING:  "⏳ pending (broadcast, awaiting confirmation)",
-        VerifyClass.OFFLINE:  "✓ crypto OK (chain NOT verified)",
-        VerifyClass.CRYPTO:   "✗ CRYPTO failure",
-        VerifyClass.CHAIN:    "✗ CHAIN failure",
-        VerifyClass.VERSION:  "✗ VERSION unsupported",
-        VerifyClass.NETWORK:  "? NETWORK error",
-    }[result.cls]
+def _render_verify_human(result, file_path: Path, bundle_path: Path,
+                         *, unicode_ok: bool = True) -> None:
+    if unicode_ok:
+        label = {
+            VerifyClass.VERIFIED: "✓ verified",
+            VerifyClass.PENDING:  "⏳ pending (broadcast, awaiting confirmation)",
+            VerifyClass.OFFLINE:  "✓ crypto OK (chain NOT verified)",
+            VerifyClass.CRYPTO:   "✗ CRYPTO failure",
+            VerifyClass.CHAIN:    "✗ CHAIN failure",
+            VerifyClass.VERSION:  "✗ VERSION unsupported",
+            VerifyClass.NETWORK:  "? NETWORK error",
+        }[result.cls]
+    else:
+        label = {
+            VerifyClass.VERIFIED: "OK verified",
+            VerifyClass.PENDING:  "~  pending (broadcast, awaiting confirmation)",
+            VerifyClass.OFFLINE:  "OK crypto OK (chain NOT verified)",
+            VerifyClass.CRYPTO:   "X  CRYPTO failure",
+            VerifyClass.CHAIN:    "X  CHAIN failure",
+            VerifyClass.VERSION:  "X  VERSION unsupported",
+            VerifyClass.NETWORK:  "?  NETWORK error",
+        }[result.cls]
     print(f"{label}: {file_path}")
     print(f"  bundle:    {bundle_path}")
     if result.sha256_hex:
@@ -337,6 +369,23 @@ def cmd_login(args: argparse.Namespace) -> int:
     if not key:
         _err("satsignal: empty API key")
         return 1
+
+    existing = Config.load()
+    probe_cfg = Config(
+        api_key=key,
+        base_url=(args.base_url or existing.base_url).rstrip("/"),
+        matter=args.matter or existing.matter,
+    )
+    try:
+        api.list_matters(probe_cfg)
+    except APIError as e:
+        _err(f"satsignal: API rejected the key ({e}); not writing "
+             f"credentials. Re-check the key and try again.")
+        return 1
+    except requests.RequestException as e:
+        _err(f"satsignal: warning — could not reach {probe_cfg.base_url} "
+             f"to validate the key ({e}). Writing credentials anyway.")
+
     path = write_credentials(api_key=key,
                              base_url=args.base_url,
                              matter=args.matter)

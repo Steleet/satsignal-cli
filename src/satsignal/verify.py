@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import struct
+import time
 import unicodedata
 from base64 import urlsafe_b64decode
 from dataclasses import dataclass
@@ -230,42 +231,50 @@ class _NetworkError(Exception):
     pass
 
 
+def _get_with_retry(url: str, timeout: int):
+    """GET with one retry on RequestException (1s backoff). Returns the
+    Response or None if both attempts raise. HTTP non-200 is NOT retried."""
+    try:
+        return requests.get(url, timeout=timeout)
+    except requests.RequestException:
+        time.sleep(1.0)
+    try:
+        return requests.get(url, timeout=timeout)
+    except requests.RequestException:
+        return None
+
+
 def _fetch_chain(txid: str) -> tuple[int, str]:
     """Return (confirmations, doc_hash_hex). Tries WhatsOnChain, falls
-    back to Bitails. Raises _NetworkError on full failure."""
-    try:
-        r = requests.get(
-            f"https://api.whatsonchain.com/v1/bsv/main/tx/hash/{txid}",
-            timeout=20,
-        )
-        if r.status_code == 200:
-            data = r.json()
-            confirmations = int(data.get("confirmations", 0))
-            doc_hash = _parse_mbnt_from_woc(data)
-            if doc_hash is None:
-                raise _NetworkError(
-                    f"no MBNT OP_RETURN found in tx {txid}"
-                )
-            return confirmations, doc_hash
-    except requests.RequestException:
-        pass
+    back to Bitails. Each explorer gets one retry on transient network
+    failure. Raises _NetworkError on full failure."""
+    r = _get_with_retry(
+        f"https://api.whatsonchain.com/v1/bsv/main/tx/hash/{txid}",
+        timeout=20,
+    )
+    if r is not None and r.status_code == 200:
+        data = r.json()
+        confirmations = int(data.get("confirmations", 0))
+        doc_hash = _parse_mbnt_from_woc(data)
+        if doc_hash is None:
+            raise _NetworkError(
+                f"no MBNT OP_RETURN found in tx {txid}"
+            )
+        return confirmations, doc_hash
 
     # Bitails fallback (returns raw hex; needs script parsing)
-    try:
-        r = requests.get(
-            f"https://api.bitails.io/tx/{txid}", timeout=20,
-        )
-        if r.status_code == 200:
-            data = r.json()
-            confirmations = int(data.get("confirmations", 0))
-            doc_hash = _parse_mbnt_from_bitails(data)
-            if doc_hash is None:
-                raise _NetworkError(
-                    f"no MBNT OP_RETURN found in tx {txid}"
-                )
-            return confirmations, doc_hash
-    except requests.RequestException:
-        pass
+    r = _get_with_retry(
+        f"https://api.bitails.io/tx/{txid}", timeout=20,
+    )
+    if r is not None and r.status_code == 200:
+        data = r.json()
+        confirmations = int(data.get("confirmations", 0))
+        doc_hash = _parse_mbnt_from_bitails(data)
+        if doc_hash is None:
+            raise _NetworkError(
+                f"no MBNT OP_RETURN found in tx {txid}"
+            )
+        return confirmations, doc_hash
 
     raise _NetworkError("could not reach WhatsOnChain or Bitails")
 
