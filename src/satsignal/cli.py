@@ -300,6 +300,35 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 else:
                     spv_height = spv.height
                     spv_block_hash_be = spv.block_hash_be
+    elif args.spv and result.cls in (
+        VerifyClass.PENDING, VerifyClass.OFFLINE, VerifyClass.NETWORK,
+    ):
+        # User asked for SPV but the underlying verify didn't reach
+        # VERIFIED. Previously this silently no-op'd: "spv": null was
+        # emitted in JSON and the exit code followed the underlying
+        # class (PENDING/OFFLINE → 0). A caller running
+        # `satsignal verify --spv … && publish_attestation` would have
+        # treated a 0-conf or offline result as SPV-verified. Reclassify
+        # to VerifyClass.SPV with a reason so the request is honored
+        # (exits 8) and the user knows SPV didn't run.
+        reasons = {
+            VerifyClass.PENDING:
+                "SPV requires a confirmed tx; this anchor is 0-conf. "
+                "Wait for a block, then re-run with --spv.",
+            VerifyClass.OFFLINE:
+                "--spv requires online chain verification; --offline "
+                "skips it. Drop --offline to run SPV.",
+            VerifyClass.NETWORK:
+                "SPV depends on the chain-confirmation step that just "
+                "failed (network error). Retry when the explorer is "
+                "reachable.",
+        }
+        result = type(result)(
+            cls=VerifyClass.SPV, bundle=result.bundle,
+            sha256_hex=result.sha256_hex, txid=result.txid,
+            confirmations=result.confirmations,
+            message=reasons[result.cls],
+        )
 
     if args.json:
         print(json.dumps({
