@@ -254,12 +254,14 @@ class _ChainError(Exception):
 def _get_with_retry(url: str, timeout: int):
     """GET with one retry on RequestException (1s backoff). Returns the
     Response or None if both attempts raise. HTTP non-200 is NOT retried."""
+    from . import __version__
+    headers = {"User-Agent": f"satsignal-cli/{__version__}"}
     try:
-        return requests.get(url, timeout=timeout)
+        return requests.get(url, timeout=timeout, headers=headers)
     except requests.RequestException:
         time.sleep(1.0)
     try:
-        return requests.get(url, timeout=timeout)
+        return requests.get(url, timeout=timeout, headers=headers)
     except requests.RequestException:
         return None
 

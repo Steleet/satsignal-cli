@@ -5,7 +5,21 @@ from typing import Optional
 
 import requests
 
+from . import __version__
 from .config import Config
+
+
+# Identifying User-Agent so server logs can tell satsignal-cli traffic
+# apart from raw curl / other clients. Mirrors the satsignal-mcp /
+# satsignal-otel / satsignal-blob pattern.
+_USER_AGENT = f"satsignal-cli/{__version__}"
+
+
+def _auth_headers(cfg: Config) -> dict:
+    return {
+        "Authorization": f"Bearer {cfg.require_api_key()}",
+        "User-Agent": _USER_AGENT,
+    }
 
 
 class APIError(Exception):
@@ -56,7 +70,7 @@ def anchor_standard(
     r = requests.post(
         f"{cfg.base_url}/api/v1/anchors",
         json=body,
-        headers={"Authorization": f"Bearer {cfg.require_api_key()}"},
+        headers=_auth_headers(cfg),
         timeout=30,
     )
     if r.status_code == 401 or r.status_code == 403:
@@ -80,7 +94,7 @@ def anchor_standard(
 def fetch_bundle(cfg: Config, bundle_url: str) -> bytes:
     r = requests.get(
         bundle_url,
-        headers={"Authorization": f"Bearer {cfg.require_api_key()}"},
+        headers=_auth_headers(cfg),
         timeout=30,
     )
     if r.status_code >= 400:
@@ -91,7 +105,7 @@ def fetch_bundle(cfg: Config, bundle_url: str) -> bytes:
 def list_matters(cfg: Config) -> list[dict]:
     r = requests.get(
         f"{cfg.base_url}/api/v1/matters",
-        headers={"Authorization": f"Bearer {cfg.require_api_key()}"},
+        headers=_auth_headers(cfg),
         timeout=15,
     )
     if r.status_code >= 400:
@@ -107,6 +121,7 @@ def lookup_hash(cfg: Config, sha256_hex: str) -> Optional[dict]:
     r = requests.get(
         f"{cfg.proof_url}/lookup_hash",
         params={"h": sha256_hex},
+        headers={"User-Agent": _USER_AGENT},
         timeout=15,
     )
     if r.status_code == 404:
