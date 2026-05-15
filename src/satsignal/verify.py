@@ -244,11 +244,17 @@ class _NetworkError(Exception):
 
 
 class _ChainError(Exception):
-    """Explorer returned the tx successfully but the on-chain commitment
-    doesn't carry an MBNT OP_RETURN. Per bundle-v1.md §8 this is CHAIN
-    (exit 2) — the bundle parses but the anchor doesn't match. Not
-    retry-friendly: the txid was fetched fine, the anchor is just
-    absent / wrong."""
+    """The explorers gave a definitive negative answer about the anchor.
+    Two cases, both CHAIN (exit 2) per bundle-v1.md §8 and both NOT
+    retry-friendly:
+
+    1. The tx was fetched successfully but its outputs carry no MBNT
+       OP_RETURN — the bundle parses but the anchor doesn't match.
+    2. Both explorers were reachable and both reported the txid as not
+       found (HTTP 404) — the txid in the bundle does not exist on
+       chain. This is a forged / tampered anchor; retrying can never
+       turn a nonexistent tx into a real one, so it must NOT be
+       classified NETWORK (exit 3, "transient — retry")."""
 
 
 def _get_with_retry(url: str, timeout: int):
@@ -269,7 +275,24 @@ def _get_with_retry(url: str, timeout: int):
 def _fetch_chain(txid: str) -> tuple[int, str]:
     """Return (confirmations, doc_hash_hex). Tries WhatsOnChain, falls
     back to Bitails. Each explorer gets one retry on transient network
-    failure. Raises _NetworkError on full failure."""
+    failure.
+
+    Raises:
+        _ChainError   — both explorers were reachable and both reported
+                        the txid as not found (HTTP 404), i.e. the
+                        anchor does not exist on chain (forged /
+                        tampered txid). CHAIN, exit 2, unrecoverable.
+        _NetworkError — could not get a definitive answer from either
+                        explorer: connection failure (r is None), a
+                        5xx/429/other non-{200,404} status, or only one
+                        explorer answered 404 while the other was
+                        unreachable/degraded. NETWORK, exit 3, retry-
+                        friendly. We require BOTH explorers to agree on
+                        404 before declaring a forgery so a single
+                        explorer outage can't produce a false
+                        "tampered" verdict.
+    """
+    woc_404 = False
     r = _get_with_retry(
         f"https://api.whatsonchain.com/v1/bsv/main/tx/hash/{txid}",
         timeout=20,
@@ -283,8 +306,11 @@ def _fetch_chain(txid: str) -> tuple[int, str]:
                 f"no MBNT OP_RETURN found in tx {txid}"
             )
         return confirmations, doc_hash
+    if r is not None and r.status_code == 404:
+        woc_404 = True
 
     # Bitails fallback (returns raw hex; needs script parsing)
+    bitails_404 = False
     r = _get_with_retry(
         f"https://api.bitails.io/tx/{txid}", timeout=20,
     )
@@ -297,6 +323,16 @@ def _fetch_chain(txid: str) -> tuple[int, str]:
                 f"no MBNT OP_RETURN found in tx {txid}"
             )
         return confirmations, doc_hash
+    if r is not None and r.status_code == 404:
+        bitails_404 = True
+
+    # Both explorers answered and both say "no such tx". This is a
+    # definitive negative, not a transient outage — the txid in the
+    # bundle was never broadcast / has been altered. Classify CHAIN
+    # (exit 2, unrecoverable) so callers don't loop on a "retry" that
+    # can never succeed.
+    if woc_404 and bitails_404:
+        raise _ChainError(f"tx {txid} not found on chain")
 
     raise _NetworkError("could not reach WhatsOnChain or Bitails")
 
