@@ -2,7 +2,7 @@
 
 Customer-facing CLI for [Satsignal](https://satsignal.cloud) — anchor and verify files against the BSV-anchored notary.
 
-> **Status: v0.1 draft.** Standard-mode anchor + verify works end-to-end. Sealed mode is `verify`-only (you can verify a sealed bundle produced by the web UI; producing one from the CLI lands in v0.2). Multi-proof (`content_canonical`, `chunk_merkle`) verification falls back to the web verifier at `/verify`.
+> **Status: maintained — current release `0.3.2`** (`pip install satsignal-cli`). Standard-mode anchor + verify work end-to-end, including SPV chain-confirmation against a validated header store with TSC Merkle proofs (no single-explorer trust). Sealed bundles **verify** from the CLI. Sealed-mode *anchoring* and multi-proof (`content_canonical`, `chunk_merkle`) verification remain web-only — see [scope limits](#current-scope-limits).
 
 ## Install
 
@@ -85,11 +85,11 @@ Exit codes match bundle-v1.md §8:
 
 `satsignal verify --offline` skips the chain check. The warning ("locally-fabricated bundles pass crypto-only checks") is non-suppressible — `--quiet` does not silence it. This matches the chain-confirm-by-default rule from the spec; making the chain check opt-in by default would invert the safety property the protocol exists to provide.
 
-## What v0.1 deliberately omits
+## Current scope limits
 
-- **Sealed-mode anchoring.** The CLI can verify sealed bundles, but can't produce them (requires client-side HKDF + HMAC + bundle assembly). Use [sealed.satsignal.cloud](https://sealed.satsignal.cloud) until v0.2.
+- **Sealed-mode anchoring.** The CLI can verify sealed bundles, but can't produce them (requires client-side HKDF + HMAC + bundle assembly). Use [sealed.satsignal.cloud](https://sealed.satsignal.cloud) to produce sealed bundles.
 - **`content_canonical` / `chunk_merkle` verification.** These require porting the verifier.html canonicalizers (text-norm-v1, json-jcs-v1, csv-norm-v1, etc.) to Python. The CLI flags their presence and points to the web verifier for now.
-- **Manifest mode (Phase 8b).** Out of scope for v0.1.
+- **Manifest mode.** Out of scope for the CLI; use the API or web UI.
 - **`--watch` / `--bulk`.** Single-file anchors only.
 
 ## See also
