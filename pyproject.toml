@@ -23,7 +23,7 @@ satsignal = "satsignal.cli:main"
 
 [project.urls]
 Homepage      = "https://satsignal.cloud"
-Documentation = "https://proof.satsignal.cloud/spec-bundle"
+Documentation = "https://satsignal.cloud/docs.html#mvp-integration"
 Source        = "https://github.com/Steleet/satsignal-cli"
 Issues        = "https://github.com/Steleet/satsignal-cli/issues"
 
