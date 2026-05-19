@@ -18,14 +18,20 @@ def record_anchor(
     label: Optional[str],
 ) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
+    # Local jsonl artifact: legacy keys kept byte-identical; new aliases
+    # ADDED alongside (additive — not a wire call). Old `satsignal log`
+    # readers ignore the extra keys; old rows without them still parse.
     row = {
         "ts": int(time.time()),
         "sha256": sha256_hex,
         "txid": txid,
         "bundle_id": bundle_id,
+        "proof_id": bundle_id,
         "mode": mode,
         "matter": matter,
+        "folder": matter,
         "receipt_url": receipt_url,
+        "proof_url": receipt_url,
         "bundle_url": bundle_url,
         "label": label,
     }
