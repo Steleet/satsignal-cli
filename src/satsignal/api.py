@@ -6,7 +6,7 @@ from typing import Optional
 import requests
 
 from . import __version__
-from .config import Config
+from .config import Config, resolve_folder_alias
 
 
 # Identifying User-Agent so server logs can tell satsignal-cli traffic
@@ -37,6 +37,21 @@ class AnchorResult:
     bundle_url: Optional[str]
     dry_run: bool
 
+    # New public aliases. These mirror the legacy fields 1:1 so existing
+    # code reading `.matter_slug` / `.receipt_url` / `.bundle_id` keeps
+    # working byte-identically; new code may prefer the new names.
+    @property
+    def folder_slug(self) -> str:
+        return self.matter_slug
+
+    @property
+    def proof_url(self) -> str:
+        return self.receipt_url
+
+    @property
+    def proof_id(self) -> str:
+        return self.bundle_id
+
 
 def sha256_file(path: Path) -> tuple[str, int]:
     h = hashlib.sha256()
@@ -53,12 +68,21 @@ def anchor_standard(
     *,
     sha256_hex: str,
     file_size: int,
-    matter: str,
+    matter: Optional[str] = None,
+    folder: Optional[str] = None,
     label: Optional[str] = None,
     filename: Optional[str] = None,
 ) -> AnchorResult:
+    # `folder` is the new public kwarg, `matter` the frozen legacy one.
+    # Existing callers passing only `matter=` are unaffected. On
+    # conflict (both set, different) raise loudly.
+    slug = resolve_folder_alias(folder, matter,
+                                source="anchor_standard folder/matter")
+    # WIRE-TOKEN POLICY: the request body MUST still send the frozen
+    # legacy key `matter_slug` so every Satsignal server (incl. older /
+    # self-hosted) keeps accepting it. The new surface is folded in here.
     body = {
-        "matter_slug": matter,
+        "matter_slug": slug,
         "sha256_hex": sha256_hex,
         "file_size": file_size,
     }
@@ -80,12 +104,14 @@ def anchor_standard(
     if r.status_code >= 400:
         raise APIError(_extract_error(r))
     data = r.json()
+    # READING responses: prefer the new key if the server emits it,
+    # else fall back to the legacy key (servers today send legacy).
     return AnchorResult(
-        bundle_id=data["bundle_id"],
+        bundle_id=data.get("proof_id") or data["bundle_id"],
         txid=data["txid"],
         mode=data.get("mode", "standard"),
-        matter_slug=data["matter_slug"],
-        receipt_url=data["receipt_url"],
+        matter_slug=data.get("folder_slug") or data["matter_slug"],
+        receipt_url=data.get("proof_url") or data["receipt_url"],
         bundle_url=data.get("bundle_url"),
         dry_run=bool(data.get("dry_run", False)),
     )

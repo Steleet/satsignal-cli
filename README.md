@@ -31,7 +31,18 @@ satsignal verify report.pdf
 | `satsignal show <bundle>` | print receipt details (txid, mode, proofs, etc.) |
 | `satsignal log` | list recent anchors from `~/.local/state/satsignal/anchors.jsonl` |
 | `satsignal login` | store API key in `~/.config/satsignal/credentials.toml` |
-| `satsignal matters` | list workspace matters |
+| `satsignal folders` | list workspace folders |
+| `satsignal matters` | legacy alias of `satsignal folders` (still supported) |
+
+> **Vocabulary:** `folder` is the preferred public name; `matter` is a
+> frozen legacy alias and keeps working forever. `--folder` /
+> `SATSIGNAL_FOLDER` / config `folder` are accepted alongside `--matter`
+> / `SATSIGNAL_MATTER` / config `matter`. If both are set to *different*
+> values the command fails loudly; equal or single is fine. JSON / jsonl
+> output now carries both `folder` and `matter` (and `proof`/`receipt`,
+> `proof_id`/`bundle_id`). The HTTP request to the Satsignal API still
+> sends the frozen `matter_slug` key, so older / self-hosted servers
+> keep working unchanged.
 
 ## Sidecar convention
 
@@ -46,16 +57,18 @@ This convention mirrors GPG's `.asc` / RFC 3161's `.tsr` — one file in, one re
 
 Reads (in order, first wins):
 
-1. Environment: `SATSIGNAL_API_KEY`, `SATSIGNAL_BASE_URL`, `SATSIGNAL_MATTER`, `SATSIGNAL_PROOF_URL`
+1. Environment: `SATSIGNAL_API_KEY`, `SATSIGNAL_BASE_URL`, `SATSIGNAL_FOLDER` (or legacy `SATSIGNAL_MATTER`), `SATSIGNAL_PROOF_URL`
 2. `~/.config/satsignal/credentials.toml` (mode 600)
-3. Defaults: `base_url = https://app.satsignal.cloud`, `proof_url = https://proof.satsignal.cloud`, `matter = inbox`
+3. Defaults: `base_url = https://app.satsignal.cloud`, `proof_url = https://proof.satsignal.cloud`, `folder = inbox`
 
-The credentials file is plain TOML:
+The credentials file is plain TOML. `folder` is the preferred key;
+`matter` still works as a legacy alias (`satsignal login` continues to
+write `matter` for back-compat with older CLI versions):
 
 ```toml
 api_key  = "sk_..."
 base_url = "https://app.satsignal.cloud"
-matter   = "inbox"
+folder   = "inbox"   # or legacy:  matter = "inbox"
 ```
 
 ## Verify semantics

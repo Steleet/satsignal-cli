@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "satsignal-cli"
-version = "0.3.2"
+version = "0.4.0"
 description = "Customer-facing CLI for Satsignal — anchor and verify files against the BSV-anchored notary."
 readme = "README.md"
 requires-python = ">=3.9"

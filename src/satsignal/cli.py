@@ -5,7 +5,8 @@
     satsignal show <bundle>          print bundle details
     satsignal log                    list local anchors
     satsignal login                  store API key
-    satsignal matters                list workspace matters
+    satsignal folders                list workspace folders
+    satsignal matters                legacy alias of `folders`
 """
 import argparse
 import getpass
@@ -20,7 +21,7 @@ from . import __version__
 from . import api, bundle, log
 from .api import APIError
 from .bundle import BundleError, default_sidecar_path, find_sidecar, load_bundle
-from .config import Config, write_credentials
+from .config import Config, resolve_folder_alias, write_credentials
 from .verify import EXIT_CODES, VerifyClass, verify_file
 
 
@@ -60,8 +61,12 @@ def _build_parser() -> argparse.ArgumentParser:
     pa.add_argument("file", type=Path)
     pa.add_argument("--mode", choices=["standard", "sealed"],
                     default="standard")
+    pa.add_argument("--folder", default=None,
+                    help="folder slug (default from config / "
+                         "SATSIGNAL_FOLDER). Preferred name.")
     pa.add_argument("--matter", default=None,
-                    help="matter slug (default from config / SATSIGNAL_MATTER)")
+                    help="legacy alias for --folder (still supported; "
+                         "default from config / SATSIGNAL_MATTER)")
     pa.add_argument("--label", default=None)
     pa.add_argument("-o", "--out", type=Path, default=None,
                     help="override sidecar location")
@@ -107,14 +112,21 @@ def _build_parser() -> argparse.ArgumentParser:
     pli = sub.add_parser("login", help="store API key in ~/.config/satsignal/")
     pli.add_argument("--api-key", default=None,
                      help="API key (omit to prompt without echo)")
+    pli.add_argument("--folder", default=None,
+                     help="default folder slug (preferred name)")
     pli.add_argument("--matter", default=None,
-                     help="default matter slug")
+                     help="legacy alias for --folder (still supported)")
     pli.add_argument("--base-url", default=None)
     pli.set_defaults(func=cmd_login)
 
-    pm = sub.add_parser("matters", help="list workspace matters")
+    pm = sub.add_parser("matters", help="list workspace folders "
+                                        "(legacy alias of `folders`)")
     pm.add_argument("--json", action="store_true")
     pm.set_defaults(func=cmd_matters)
+
+    pf = sub.add_parser("folders", help="list workspace folders")
+    pf.add_argument("--json", action="store_true")
+    pf.set_defaults(func=cmd_matters)
 
     ph = sub.add_parser("headers", help="manage the local SPV headers store")
     ph_sub = ph.add_subparsers(dest="headers_cmd")
@@ -145,7 +157,16 @@ def cmd_anchor(args: argparse.Namespace) -> int:
         return 1
 
     sha256_hex, file_size = api.sha256_file(file_path)
-    matter = args.matter or cfg.matter
+    # New `--folder` preferred, legacy `--matter` still works; conflict
+    # (both set, different) fails loudly. If neither flag is given, fall
+    # back to the resolved config slug exactly as before.
+    try:
+        cli_slug = resolve_folder_alias(
+            args.folder, args.matter, source="--folder/--matter")
+    except ValueError as e:
+        _err(f"satsignal: {e}")
+        return 2
+    matter = cli_slug or cfg.matter
     sidecar = args.out or default_sidecar_path(file_path)
 
     if not args.broadcast:
@@ -187,10 +208,16 @@ def cmd_anchor(args: argparse.Namespace) -> int:
             "file": str(file_path),
             "sha256": sha256_hex,
             "txid": result.txid,
+            # Legacy keys kept byte-identical; new aliases ADDED
+            # alongside (never replacing) so existing parsers don't
+            # break and new parsers can prefer the new names.
             "bundle_id": result.bundle_id,
+            "proof_id": result.bundle_id,
             "mode": result.mode,
             "matter": result.matter_slug,
+            "folder": result.matter_slug,
             "receipt": result.receipt_url,
+            "proof": result.receipt_url,
             "sidecar": str(sidecar) if result.bundle_url else None,
         }))
     else:
@@ -217,7 +244,9 @@ def _print_anchor_dryrun(file_path, sha256_hex, file_size, mode, matter,
             "sha256": sha256_hex,
             "file_size": file_size,
             "mode": mode,
+            # Legacy `matter` kept; `folder` ADDED alongside.
             "matter": matter,
+            "folder": matter,
             "sidecar": str(sidecar),
             "label": label,
         }))
@@ -440,7 +469,9 @@ def cmd_log(args: argparse.Namespace) -> int:
         sha = row.get("sha256", "")[:12]
         txid = row.get("txid", "")[:12]
         mode = row.get("mode", "?")
-        matter = row.get("matter", "?")
+        # Prefer the new key if present, else legacy fallback so both
+        # old (matter-only) and new (folder) jsonl rows render.
+        matter = row.get("folder") or row.get("matter", "?")
         label = row.get("label") or ""
         print(f"{ts}  {mode:<8} {matter:<14} {sha}  {txid}  {label}")
     return 0
@@ -461,11 +492,18 @@ def cmd_login(args: argparse.Namespace) -> int:
         _err("satsignal: empty API key")
         return 1
 
+    try:
+        login_slug = resolve_folder_alias(
+            args.folder, args.matter, source="--folder/--matter")
+    except ValueError as e:
+        _err(f"satsignal: {e}")
+        return 2
+
     existing = Config.load()
     probe_cfg = Config(
         api_key=key,
         base_url=(args.base_url or existing.base_url).rstrip("/"),
-        matter=args.matter or existing.matter,
+        matter=login_slug or existing.matter,
     )
     try:
         api.list_matters(probe_cfg)
@@ -479,7 +517,7 @@ def cmd_login(args: argparse.Namespace) -> int:
 
     path = write_credentials(api_key=key,
                              base_url=args.base_url,
-                             matter=args.matter)
+                             matter=login_slug)
     print(f"wrote {path} (mode 600)")
     return 0
 
