@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Release infrastructure: PyPI publishes via Trusted Publishers (OIDC) — workflow file is `.github/workflows/publish.yml`, no API tokens, no `~/.pypirc`. Mirrors the `satsignal-mcp` 0.4.1 pilot; see `RELEASE.md` in `Steleet/satsignal-mcp` and the public "How we publish" section at <https://satsignal.cloud/docs.html#how-we-publish>.
+
 ## 0.4.1
 
 `satsignal anchor --help` now documents `SATSIGNAL_API_KEY`.
