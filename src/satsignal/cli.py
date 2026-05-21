@@ -57,7 +57,22 @@ def _build_parser() -> argparse.ArgumentParser:
                    version=f"satsignal {__version__}")
     sub = p.add_subparsers(dest="cmd")
 
-    pa = sub.add_parser("anchor", help="anchor a file (dry-run by default)")
+    pa = sub.add_parser(
+        "anchor",
+        help="anchor a file (dry-run by default)",
+        epilog=(
+            "Environment variables:\n"
+            "  SATSIGNAL_API_KEY  Required for --broadcast (create one at\n"
+            "                     https://app.satsignal.cloud, or run\n"
+            "                     `satsignal login`). No key needed for a\n"
+            "                     dry-run preview.\n"
+            "  SATSIGNAL_FOLDER   Default folder slug (overridable by\n"
+            "                     --folder).\n"
+            "  SATSIGNAL_MATTER   Legacy alias of SATSIGNAL_FOLDER (still\n"
+            "                     honored; SATSIGNAL_FOLDER wins if both set)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     pa.add_argument("file", type=Path)
     pa.add_argument("--mode", choices=["standard", "sealed"],
                     default="standard")

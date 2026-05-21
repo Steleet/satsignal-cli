@@ -253,6 +253,32 @@ def test_cli_anchor_dryrun_new_folder(monkeypatch, tmp_path, capsys):
     assert out["matter"] == "casework"
 
 
+def test_anchor_help_mentions_api_key(capsys):
+    """Regression for finding F8 (2026-05-21 cold-start probe): the
+    anchor sub-parser's --help must surface SATSIGNAL_API_KEY so a
+    newcomer doesn't only discover it via a failed --broadcast.
+    """
+    import pytest
+
+    from satsignal.cli import _build_parser
+
+    parser = _build_parser()
+    # Trigger the anchor sub-parser's help; argparse exits 0 on --help.
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(["anchor", "--help"])
+    assert exc_info.value.code == 0
+
+    out = capsys.readouterr().out
+    assert "SATSIGNAL_API_KEY" in out, (
+        "anchor --help must name SATSIGNAL_API_KEY (finding F8)"
+    )
+    # While we're here, confirm the other two env vars stay mentioned —
+    # they were already covered by per-flag help text; the epilog should
+    # not delete that coverage.
+    assert "SATSIGNAL_FOLDER" in out
+    assert "SATSIGNAL_MATTER" in out
+
+
 def test_cli_anchor_conflict_exit2(monkeypatch, tmp_path, capsys):
     f = tmp_path / "doc.txt"
     f.write_text("hello")
