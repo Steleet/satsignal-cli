@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.1
+
+`satsignal anchor --help` now documents `SATSIGNAL_API_KEY`.
+
+A 2026-05-21 cold-start review (six-vector probe, finding 8) flagged
+that `--help` documented `SATSIGNAL_FOLDER` and `SATSIGNAL_MATTER` in
+flag help text but never mentioned `SATSIGNAL_API_KEY` — the env var
+the user most needs before `--broadcast` will work. The runtime error
+from `config.require_api_key()` was clear, but a newcomer reading
+`--help` first wouldn't discover the env-var path until they tried to
+broadcast and failed.
+
+- Added an `epilog` to the `anchor` sub-parser enumerating
+  `SATSIGNAL_API_KEY`, `SATSIGNAL_FOLDER`, and `SATSIGNAL_MATTER` with
+  one-line descriptions and the key-creation pointer.
+- New test `test_anchor_help_mentions_api_key` regression-pins the
+  discoverability fix.
+- No behavior change. `require_api_key()`, the runtime error message,
+  and every existing flag are byte-identical.
+
 ## 0.4.0
 
 Additive proof/folder vocabulary aliases — fully backward-compatible.
