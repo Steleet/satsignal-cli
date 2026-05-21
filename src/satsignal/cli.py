@@ -74,8 +74,12 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     pa.add_argument("file", type=Path)
-    pa.add_argument("--mode", choices=["standard", "sealed"],
-                    default="standard")
+    pa.add_argument("--mode", choices=["standard"],
+                    default="standard",
+                    help="anchoring mode (default: standard). Sealed-mode "
+                         "anchoring is currently web-only at "
+                         "https://sealed.satsignal.cloud; CLI support is "
+                         "tracked in the satsignal-cli issue tracker.")
     pa.add_argument("--folder", default=None,
                     help="folder slug (default from config / "
                          "SATSIGNAL_FOLDER). Preferred name.")
@@ -166,10 +170,9 @@ def cmd_anchor(args: argparse.Namespace) -> int:
         _err(f"satsignal: not a file: {file_path}")
         return 5
 
-    if args.mode == "sealed":
-        _err("satsignal: sealed mode not implemented in CLI v0.1; "
-             "use https://sealed.satsignal.cloud or wait for v0.2.")
-        return 1
+    # Sealed-mode is rejected by argparse (choices=["standard"]); no
+    # runtime guard needed here. The --mode help text points users at
+    # https://sealed.satsignal.cloud for the web-only sealed flow.
 
     sha256_hex, file_size = api.sha256_file(file_path)
     # New `--folder` preferred, legacy `--matter` still works; conflict
