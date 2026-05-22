@@ -3,6 +3,15 @@
 ## Unreleased
 
 - Release infrastructure: PyPI publishes via Trusted Publishers (OIDC) — workflow file is `.github/workflows/publish.yml`, no API tokens, no `~/.pypirc`. Mirrors the `satsignal-mcp` 0.4.1 pilot; see `RELEASE.md` in `Steleet/satsignal-mcp` and the public "How we publish" section at <https://satsignal.cloud/docs.html#how-we-publish>.
+- `satsignal anchor --dry-run` is now an explicit no-op flag (dry-run
+  was already the default; this lets scripts pass `--dry-run` for
+  symmetry with `--broadcast`). Conflicting `--dry-run --broadcast`
+  combinations are rejected with exit 2.
+- `satsignal anchor` human-readable output now prints `folder:`
+  instead of `matter:` (canonical proof/folder vocabulary). JSON
+  output, the `--matter` flag, `SATSIGNAL_MATTER` env, config keys,
+  and the `matter_slug` wire token are byte-identical (legacy paths
+  are frozen back-compat per the 0.4.0 alias rule).
 
 ## 0.4.1
 
