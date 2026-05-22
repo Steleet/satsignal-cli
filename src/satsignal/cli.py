@@ -91,6 +91,11 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="override sidecar location")
     pa.add_argument("--broadcast", action="store_true",
                     help="actually anchor (default: dry-run)")
+    pa.add_argument("--dry-run", action="store_true",
+                    help="explicitly run in dry-run mode; this is the "
+                         "default behavior — the flag is accepted for "
+                         "symmetry with --broadcast and explicitness "
+                         "in scripts. Conflicts with --broadcast.")
     pa.add_argument("--strict", action="store_true",
                     help="exit 7 if no local sidecar was written "
                          "(server returned no bundle_url)")
@@ -164,6 +169,11 @@ def _build_parser() -> argparse.ArgumentParser:
 # ────────────────────────── anchor ──────────────────────────
 
 def cmd_anchor(args: argparse.Namespace) -> int:
+    if getattr(args, "dry_run", False) and args.broadcast:
+        _err("satsignal: --dry-run and --broadcast are mutually exclusive; "
+             "omit both for the default dry-run preview, or pass only "
+             "--broadcast to actually broadcast")
+        return 2
     cfg = Config.load()
     file_path: Path = args.file
     if not file_path.is_file():
@@ -243,7 +253,7 @@ def cmd_anchor(args: argparse.Namespace) -> int:
         print(f"{ok} anchored {file_path}")
         print(f"  txid:     {result.txid}")
         print(f"  bundle:   {result.bundle_id}")
-        print(f"  matter:   {result.matter_slug}")
+        print(f"  folder:   {result.matter_slug}")
         if result.bundle_url:
             print(f"  receipt:  {sidecar} ({sidecar.stat().st_size:,} bytes)")
         print(f"  url:      {result.receipt_url}")
@@ -274,7 +284,7 @@ def _print_anchor_dryrun(file_path, sha256_hex, file_size, mode, matter,
     print(f"  sha256:  {sha256_hex}")
     print(f"  size:    {file_size:,} bytes")
     print(f"  mode:    {mode}")
-    print(f"  matter:  {matter}")
+    print(f"  folder:  {matter}")
     if label:
         print(f"  label:   {label}")
     print(f"  out:     {sidecar}")
