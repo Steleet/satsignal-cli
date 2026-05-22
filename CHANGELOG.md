@@ -1,17 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.4.2
 
-- Release infrastructure: PyPI publishes via Trusted Publishers (OIDC) — workflow file is `.github/workflows/publish.yml`, no API tokens, no `~/.pypirc`. Mirrors the `satsignal-mcp` 0.4.1 pilot; see `RELEASE.md` in `Steleet/satsignal-mcp` and the public "How we publish" section at <https://satsignal.cloud/docs.html#how-we-publish>.
-- `satsignal anchor --dry-run` is now an explicit no-op flag (dry-run
-  was already the default; this lets scripts pass `--dry-run` for
-  symmetry with `--broadcast`). Conflicting `--dry-run --broadcast`
-  combinations are rejected with exit 2.
-- `satsignal anchor` human-readable output now prints `folder:`
-  instead of `matter:` (canonical proof/folder vocabulary). JSON
-  output, the `--matter` flag, `SATSIGNAL_MATTER` env, config keys,
-  and the `matter_slug` wire token are byte-identical (legacy paths
-  are frozen back-compat per the 0.4.0 alias rule).
+Two cold-start LOW findings closed (Probes a + b from the 2026-05-21 cold-start review) plus CI release-infra migration. Released 2026-05-22.
+
+- **`satsignal anchor --dry-run` is now an explicit no-op flag.** Dry-run was already the default (broadcast requires `--broadcast`); this lets scripts pass `--dry-run` for symmetry with `--broadcast` and explicitness. Conflicting `--dry-run --broadcast` is rejected with exit 2, mirroring the existing `--folder` / `--matter` 0.4.0 alias-conflict pattern.
+- **`satsignal anchor` human-readable output now prints `folder:`** instead of `matter:` (canonical proof/folder vocabulary). JSON output, the `--matter` flag, `SATSIGNAL_MATTER` env, config `matter` key, library `matter_slug=` kwarg, and the `matter_slug` wire token are all byte-identical — legacy paths stay frozen back-compat per the 0.4.0 alias rule.
+- **Release infrastructure: PyPI publishes via Trusted Publishers (OIDC).** Workflow file is `.github/workflows/publish.yml`; no API tokens, no `~/.pypirc`. Mirrors the `satsignal-mcp` 0.4.1 pilot; see `RELEASE.md` in `Steleet/satsignal-mcp` and the public "How we publish" section at <https://satsignal.cloud/docs.html#how-we-publish>. This is the first `satsignal-cli` release via the OIDC workflow.
+
+No behavior change for existing scripts. Every existing flag, env var, config key, JSON field, and wire token is byte-identical to 0.4.1.
 
 ## 0.4.1
 
