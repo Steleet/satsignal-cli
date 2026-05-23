@@ -174,6 +174,12 @@ def cmd_anchor(args: argparse.Namespace) -> int:
              "omit both for the default dry-run preview, or pass only "
              "--broadcast to actually broadcast")
         return 2
+    if getattr(args, "dry_run", False) and args.strict:
+        _err("satsignal: --dry-run and --strict are incompatible: dry-run "
+             "never writes a sidecar, so strict-mode's sidecar-gate cannot "
+             "fire. Re-run without --strict for a preview, or with "
+             "--broadcast --strict to test strict-mode behavior end-to-end.")
+        return 2
     cfg = Config.load()
     file_path: Path = args.file
     if not file_path.is_file():
