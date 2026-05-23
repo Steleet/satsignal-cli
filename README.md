@@ -2,7 +2,7 @@
 
 Customer-facing CLI for [Satsignal](https://satsignal.cloud) — anchor and verify files against the BSV-anchored notary.
 
-> **Status: maintained — current release `0.4.0`** (`pip install satsignal-cli`). Standard-mode anchor + verify work end-to-end, including SPV chain-confirmation against a validated header store with TSC Merkle proofs (no single-explorer trust). Sealed bundles **verify** from the CLI. Sealed-mode *anchoring* and multi-proof (`content_canonical`, `chunk_merkle`) verification remain web-only — see [scope limits](#current-scope-limits).
+> **Status: maintained — current release `0.4.2`** (`pip install satsignal-cli`). Standard-mode anchor + verify work end-to-end, including SPV chain-confirmation against a validated header store with TSC Merkle proofs (no single-explorer trust). Sealed bundles **verify** from the CLI. Sealed-mode *anchoring* and multi-proof (`content_canonical`, `chunk_merkle`) verification remain web-only — see [scope limits](#current-scope-limits).
 
 ## Install
 
