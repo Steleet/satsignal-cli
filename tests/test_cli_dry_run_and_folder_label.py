@@ -74,6 +74,29 @@ def test_anchor_dry_run_broadcast_conflict_rejected(
     assert "mutually exclusive" in err
 
 
+def test_anchor_dry_run_strict_conflict_rejected(
+    monkeypatch, tmp_path, capsys,
+):
+    """`--dry-run --strict` must be rejected with exit 2 + stderr.
+
+    Closes V2-L4 (2026-05-22 probe-rerun): previously this combo silently
+    exited 0 with the usual dry-run summary, ignoring --strict. Strict
+    mode's sidecar-gate cannot fire in dry-run (no sidecar is ever
+    written), so the combination is incoherent and must be rejected up
+    front rather than silently producing a misleading exit 0.
+    """
+    f = tmp_path / "doc.txt"
+    f.write_text("hello")
+    monkeypatch.setattr("satsignal.api.requests.post",
+                        lambda *a, **k: pytest.fail("must not POST on conflict"))
+    rc = main(["anchor", str(f), "--dry-run", "--strict"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--dry-run" in err
+    assert "--strict" in err
+    assert "incompatible" in err
+
+
 # ───────────────────── Probe b: folder: label ─────────────────────
 
 def test_anchor_human_output_says_folder(monkeypatch, tmp_path, capsys):
