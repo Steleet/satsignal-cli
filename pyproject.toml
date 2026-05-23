@@ -11,6 +11,9 @@ requires-python = ">=3.9"
 authors = [{ name = "Satsignal" }]
 license = { text = "MIT" }
 keywords = ["satsignal", "notary", "bsv", "timestamp", "evidence"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+]
 dependencies = [
     "requests>=2.28",
 ]
