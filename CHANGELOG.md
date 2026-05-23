@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.3 — 2026-05-23
+
+Cluster k + cluster l from the 2026-05-23 LOW sweep.
+
+- **Behavior change: `satsignal anchor --dry-run --strict` is now rejected with exit 2** and a clear error message, instead of silently exiting 0. Dry-run never writes a sidecar, so strict-mode's sidecar-gate cannot fire — silent exit 0 was misleading. Scripts that previously relied on `--dry-run --strict` succeeding silently will now see exit 2; re-run without `--strict` for a preview, or with `--broadcast --strict` to exercise strict-mode end-to-end. Pre-1.0 semver allows behavior changes in patches; flagging here for visibility.
+- README "Status" line refreshed (0.4.0 → 0.4.2, and now 0.4.3 with this release).
+- Declared `Development Status :: 4 - Beta` PyPI classifier (consistency pass across the Satsignal package family).
+
 ## 0.4.2
 
 Two cold-start LOW findings closed (Probes a + b from the 2026-05-21 cold-start review) plus CI release-infra migration. Released 2026-05-22.
