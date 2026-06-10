@@ -29,28 +29,29 @@ class APIError(Exception):
 
 @dataclass
 class AnchorResult:
-    bundle_id: str
+    # Canonical field names (vocabulary sunset, decision 0046).
+    proof_id: str
     txid: str
     mode: str
-    matter_slug: str
-    receipt_url: str
+    folder_slug: str
+    proof_url: str
     bundle_url: Optional[str]
     dry_run: bool
 
-    # New public aliases. These mirror the legacy fields 1:1 so existing
-    # code reading `.matter_slug` / `.receipt_url` / `.bundle_id` keeps
-    # working byte-identically; new code may prefer the new names.
+    # Legacy read aliases. These mirror the canonical fields 1:1 so
+    # existing code reading `.matter_slug` / `.receipt_url` /
+    # `.bundle_id` keeps working; new code uses the canonical names.
     @property
-    def folder_slug(self) -> str:
-        return self.matter_slug
+    def matter_slug(self) -> str:
+        return self.folder_slug
 
     @property
-    def proof_url(self) -> str:
-        return self.receipt_url
+    def receipt_url(self) -> str:
+        return self.proof_url
 
     @property
-    def proof_id(self) -> str:
-        return self.bundle_id
+    def bundle_id(self) -> str:
+        return self.proof_id
 
 
 def sha256_file(path: Path) -> tuple[str, int]:
@@ -73,16 +74,18 @@ def anchor_standard(
     label: Optional[str] = None,
     filename: Optional[str] = None,
 ) -> AnchorResult:
-    # `folder` is the new public kwarg, `matter` the frozen legacy one.
+    # `folder` is the canonical kwarg, `matter` the legacy alias.
     # Existing callers passing only `matter=` are unaffected. On
-    # conflict (both set, different) raise loudly.
+    # conflict (both set, different) raise loudly — mirrors the
+    # server's `conflicting_alias` error.
     slug = resolve_folder_alias(folder, matter,
                                 source="anchor_standard folder/matter")
-    # WIRE-TOKEN POLICY: the request body MUST still send the frozen
-    # legacy key `matter_slug` so every Satsignal server (incl. older /
-    # self-hosted) keeps accepting it. The new surface is folded in here.
+    # WIRE-TOKEN POLICY (decision 0046 vocabulary sunset): the request
+    # body sends the CANONICAL key `folder_slug`. Servers since the
+    # 2026-05 vocabulary-alias release accept it; the legacy
+    # `matter_slug` request key is no longer emitted.
     body = {
-        "matter_slug": slug,
+        "folder_slug": slug,
         "sha256_hex": sha256_hex,
         "file_size": file_size,
     }
@@ -104,14 +107,18 @@ def anchor_standard(
     if r.status_code >= 400:
         raise APIError(_extract_error(r))
     data = r.json()
-    # READING responses: prefer the new key if the server emits it,
-    # else fall back to the legacy key (servers today send legacy).
+    # READING responses: canonical keys are primary (2xx responses from
+    # current servers emit canonical ONLY). The legacy-key fallback is
+    # kept deliberately for older / self-hosted servers from the
+    # 2026-05 alias window, which accept canonical requests but still
+    # emit legacy response keys (the README's old-server compatibility
+    # promise).
     return AnchorResult(
-        bundle_id=data.get("proof_id") or data["bundle_id"],
+        proof_id=data.get("proof_id") or data["bundle_id"],
         txid=data["txid"],
         mode=data.get("mode", "standard"),
-        matter_slug=data.get("folder_slug") or data["matter_slug"],
-        receipt_url=data.get("proof_url") or data["receipt_url"],
+        folder_slug=data.get("folder_slug") or data["matter_slug"],
+        proof_url=data.get("proof_url") or data["receipt_url"],
         bundle_url=data.get("bundle_url"),
         dry_run=bool(data.get("dry_run", False)),
     )
@@ -128,16 +135,25 @@ def fetch_bundle(cfg: Config, bundle_url: str) -> bytes:
     return r.content
 
 
-def list_matters(cfg: Config) -> list[dict]:
+def list_folders(cfg: Config) -> list[dict]:
+    # Canonical route (decision 0046). Current servers respond with the
+    # canonical `folders` container; the `matters` fallback read is kept
+    # for older / self-hosted servers from the 2026-05 alias window.
     r = requests.get(
-        f"{cfg.base_url}/api/v1/matters",
+        f"{cfg.base_url}/api/v1/folders",
         headers=_auth_headers(cfg),
         timeout=15,
     )
     if r.status_code >= 400:
         raise APIError(_extract_error(r))
     data = r.json()
-    return data.get("matters", []) if isinstance(data, dict) else data
+    if isinstance(data, dict):
+        return data.get("folders") or data.get("matters") or []
+    return data
+
+
+# Legacy library alias of `list_folders` (kept for back-compat).
+list_matters = list_folders
 
 
 def lookup_hash(cfg: Config, sha256_hex: str) -> Optional[dict]:
