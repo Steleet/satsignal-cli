@@ -10,28 +10,30 @@ def record_anchor(
     *,
     sha256_hex: str,
     txid: str,
-    bundle_id: str,
+    proof_id: str,
     mode: str,
-    matter: str,
-    receipt_url: str,
+    folder: str,
+    proof_url: str,
     bundle_url: Optional[str],
     label: Optional[str],
 ) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    # Local jsonl artifact: legacy keys kept byte-identical; new aliases
-    # ADDED alongside (additive — not a wire call). Old `satsignal log`
-    # readers ignore the extra keys; old rows without them still parse.
+    # Local jsonl artifact: canonical keys are primary; the legacy
+    # `bundle_id` / `matter` / `receipt_url` keys are still WRITTEN
+    # alongside (additive — not a wire call) so existing `anchors.jsonl`
+    # consumers keep parsing. Old rows without the canonical keys still
+    # render via the read-side fallback in `cmd_log`.
     row = {
         "ts": int(time.time()),
         "sha256": sha256_hex,
         "txid": txid,
-        "bundle_id": bundle_id,
-        "proof_id": bundle_id,
+        "proof_id": proof_id,
+        "bundle_id": proof_id,
         "mode": mode,
-        "matter": matter,
-        "folder": matter,
-        "receipt_url": receipt_url,
-        "proof_url": receipt_url,
+        "folder": folder,
+        "matter": folder,
+        "proof_url": proof_url,
+        "receipt_url": proof_url,
         "bundle_url": bundle_url,
         "label": label,
     }

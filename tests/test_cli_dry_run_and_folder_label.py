@@ -5,9 +5,10 @@ was already the default; the flag is a no-op for explicitness/symmetry
 with `--broadcast`). Conflict `--dry-run --broadcast` -> exit 2.
 
 Probe b: human-readable `anchor` output must print `folder:` instead of
-`matter:`. JSON output, wire body, env vars, config keys, the
-`--matter` flag, and `AnchorResult.matter_slug` field are unchanged
-(frozen back-compat per the 0.4.0 alias rule).
+`matter:`. Since 0.5.0 the canonical vocabulary is primary everywhere
+(wire body sends `folder_slug`); JSON output still carries both
+canonical and legacy keys, and `--matter` / `AnchorResult.matter_slug`
+remain as hidden legacy aliases.
 """
 import pytest
 

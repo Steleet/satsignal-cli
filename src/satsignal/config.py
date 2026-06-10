@@ -20,20 +20,20 @@ LOG_PATH = STATE_DIR / "anchors.jsonl"
 
 
 def resolve_folder_alias(folder, matter, *, source: str = "folder/matter"):
-    """Reconcile the new public ``folder`` surface with the frozen legacy
-    ``matter`` surface.
+    """Reconcile the canonical ``folder`` surface with the legacy
+    ``matter`` surface (library kwargs).
 
-    Additive, zero-break compat rule (matches the Satsignal server):
+    Compat rule (mirrors the server's ``conflicting_alias`` error):
 
     * neither set      -> ``None`` (caller falls back to its own default)
     * only one set     -> use it
     * both set, equal  -> accept (use the value)
     * both set, differ -> raise ``ValueError`` loudly; never silently pick
 
-    Precedence when both are equal / only-legacy-missing: the new
+    Precedence when both are equal / only-legacy-missing: the canonical
     ``folder`` value is preferred, ``matter`` is the fallback. Empty
-    strings / ``None`` count as "not set" so ``--folder ""`` can't mask a
-    real ``--matter``.
+    strings / ``None`` count as "not set" so ``folder=""`` can't mask a
+    real ``matter=``.
     """
     f = folder if folder else None
     m = matter if matter else None
@@ -47,7 +47,9 @@ def resolve_folder_alias(folder, matter, *, source: str = "folder/matter"):
 
 DEFAULT_BASE_URL = "https://app.satsignal.cloud"
 DEFAULT_PROOF_URL = "https://proof.satsignal.cloud"
-DEFAULT_MATTER = "inbox"
+DEFAULT_FOLDER = "inbox"
+# Legacy alias of DEFAULT_FOLDER (kept for library back-compat).
+DEFAULT_MATTER = DEFAULT_FOLDER
 
 
 @dataclass
@@ -55,7 +57,7 @@ class Config:
     api_key: Optional[str]
     base_url: str = DEFAULT_BASE_URL
     proof_url: str = DEFAULT_PROOF_URL
-    matter: str = DEFAULT_MATTER
+    folder: str = DEFAULT_FOLDER
 
     @classmethod
     def load(cls) -> "Config":
@@ -73,30 +75,29 @@ class Config:
             or file_data.get("proof_url")
             or DEFAULT_PROOF_URL
         ).rstrip("/")
-        # `folder` is the new public name; `matter` is the frozen legacy
-        # name. Resolve per-source (env vs file) so an env `folder` and a
-        # file `matter` don't false-positive as a conflict, then chain
-        # env -> file -> default exactly as the legacy code did.
-        env_folder = resolve_folder_alias(
-            os.environ.get("SATSIGNAL_FOLDER"),
-            os.environ.get("SATSIGNAL_MATTER"),
-            source="env SATSIGNAL_FOLDER/SATSIGNAL_MATTER",
+        # `folder` is the canonical name. SATSIGNAL_FOLDER is read
+        # first; SATSIGNAL_MATTER is the legacy fallback (still honored,
+        # no longer documented). Same precedence for the config-file
+        # keys, then chain env -> file -> default.
+        env_folder = (
+            os.environ.get("SATSIGNAL_FOLDER")
+            or os.environ.get("SATSIGNAL_MATTER")  # legacy fallback
+            or None
         )
-        file_folder = resolve_folder_alias(
-            file_data.get("folder"),
-            file_data.get("matter"),
-            source="credentials.toml folder/matter",
+        file_folder = (
+            file_data.get("folder")
+            or file_data.get("matter")  # legacy fallback
+            or None
         )
-        matter = env_folder or file_folder or DEFAULT_MATTER
+        folder = env_folder or file_folder or DEFAULT_FOLDER
         return cls(api_key=api_key, base_url=base_url,
-                   proof_url=proof_url, matter=matter)
+                   proof_url=proof_url, folder=folder)
 
     @property
-    def folder(self) -> str:
-        """New public alias for the resolved folder/matter slug. The
-        on-the-wire field stays ``matter_slug`` (see api.py); this is the
-        user-facing read accessor."""
-        return self.matter
+    def matter(self) -> str:
+        """Legacy read alias for the resolved folder slug (kept for
+        library back-compat; new code reads ``.folder``)."""
+        return self.folder
 
     def require_api_key(self) -> str:
         if not self.api_key:
@@ -126,9 +127,10 @@ def _read_credentials_file() -> dict:
 def write_credentials(api_key: str, base_url: Optional[str] = None,
                       matter: Optional[str] = None,
                       folder: Optional[str] = None) -> Path:
-    # `folder` is the new public arg; `matter` is the frozen legacy arg.
-    # An unchanged caller passing only `matter=` writes a byte-identical
-    # `matter = "..."` line as before. If both are given they must agree.
+    # `folder` is the canonical arg; `matter` is the legacy alias. If
+    # both are given they must agree. The file now stores the canonical
+    # `folder` key (CLI >= 0.4.0 reads it; `matter` keys in existing
+    # files keep being read as a legacy fallback).
     slug = resolve_folder_alias(folder, matter,
                                 source="write_credentials folder/matter")
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -136,7 +138,7 @@ def write_credentials(api_key: str, base_url: Optional[str] = None,
     if base_url:
         lines.append(f'base_url = "{base_url}"')
     if slug:
-        lines.append(f'matter = "{slug}"')
+        lines.append(f'folder = "{slug}"')
     CREDENTIALS_PATH.write_text("\n".join(lines) + "\n")
     CREDENTIALS_PATH.chmod(0o600)
     return CREDENTIALS_PATH

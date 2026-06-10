@@ -2,7 +2,7 @@
 
 Customer-facing CLI for [Satsignal](https://satsignal.cloud) — anchor and verify files against the BSV-anchored notary.
 
-> **Status: maintained — current release `0.4.3`** (`pip install satsignal-cli`). Standard-mode anchor + verify work end-to-end, including SPV chain-confirmation against a validated header store with TSC Merkle proofs (no single-explorer trust). Sealed bundles **verify** from the CLI. Sealed-mode *anchoring* and multi-proof (`content_canonical`, `chunk_merkle`) verification remain web-only — see [scope limits](#current-scope-limits).
+> **Status: maintained — current release `0.5.0`** (`pip install satsignal-cli`). Standard-mode anchor + verify work end-to-end, including SPV chain-confirmation against a validated header store with TSC Merkle proofs (no single-explorer trust). Sealed bundles **verify** from the CLI. Sealed-mode *anchoring* and multi-proof (`content_canonical`, `chunk_merkle`) verification remain web-only — see [scope limits](#current-scope-limits).
 
 ## Install
 
@@ -32,17 +32,22 @@ satsignal verify report.pdf
 | `satsignal log` | list recent anchors from `~/.local/state/satsignal/anchors.jsonl` |
 | `satsignal login` | store API key in `~/.config/satsignal/credentials.toml` |
 | `satsignal folders` | list workspace folders |
-| `satsignal matters` | legacy alias of `satsignal folders` (still supported) |
 
-> **Vocabulary:** `folder` is the preferred public name; `matter` is a
-> frozen legacy alias and keeps working forever. `--folder` /
-> `SATSIGNAL_FOLDER` / config `folder` are accepted alongside `--matter`
-> / `SATSIGNAL_MATTER` / config `matter`. If both are set to *different*
-> values the command fails loudly; equal or single is fine. JSON / jsonl
-> output now carries both `folder` and `matter` (and `proof`/`receipt`,
-> `proof_id`/`bundle_id`). The HTTP request to the Satsignal API still
-> sends the frozen `matter_slug` key, so older / self-hosted servers
-> keep working unchanged.
+> **Compatibility note (legacy `matter` vocabulary):** `folder` is the
+> canonical name everywhere — `--folder`, `SATSIGNAL_FOLDER`, config
+> `folder`, wire key `folder_slug`. The legacy spellings still work but
+> are no longer documented: `--matter` is a hidden alias of `--folder`
+> (same destination; last flag wins), `SATSIGNAL_MATTER` and the config
+> `matter` key are fallbacks read only when the canonical name is
+> unset, and `satsignal matters` is a hidden alias of `satsignal
+> folders`. JSON / jsonl output carries both canonical and legacy keys
+> (`folder`/`matter`, `proof_id`/`bundle_id`, `proof`/`receipt`) so
+> existing output parsers keep working. Since 0.5.0 the HTTP request
+> sends the canonical `folder_slug` key and the canonical
+> `/api/v1/folders` route; response parsing still falls back to legacy
+> keys, so self-hosted servers from the 2026-05 vocabulary-alias
+> release onward work unchanged — older self-hosted servers need CLI
+> ≤ 0.4.x.
 
 ## Sidecar convention
 
@@ -57,18 +62,18 @@ This convention mirrors GPG's `.asc` / RFC 3161's `.tsr` — one file in, one re
 
 Reads (in order, first wins):
 
-1. Environment: `SATSIGNAL_API_KEY`, `SATSIGNAL_BASE_URL`, `SATSIGNAL_FOLDER` (or legacy `SATSIGNAL_MATTER`), `SATSIGNAL_PROOF_URL`
+1. Environment: `SATSIGNAL_API_KEY`, `SATSIGNAL_BASE_URL`, `SATSIGNAL_FOLDER`, `SATSIGNAL_PROOF_URL`
 2. `~/.config/satsignal/credentials.toml` (mode 600)
 3. Defaults: `base_url = https://app.satsignal.cloud`, `proof_url = https://proof.satsignal.cloud`, `folder = inbox`
 
-The credentials file is plain TOML. `folder` is the preferred key;
-`matter` still works as a legacy alias (`satsignal login` continues to
-write `matter` for back-compat with older CLI versions):
+The credentials file is plain TOML. `folder` is the canonical key
+(`satsignal login` writes it since 0.5.0; a legacy `matter` key in an
+existing file is still read as a fallback):
 
 ```toml
 api_key  = "sk_..."
 base_url = "https://app.satsignal.cloud"
-folder   = "inbox"   # or legacy:  matter = "inbox"
+folder   = "inbox"
 ```
 
 ## Verify semantics
